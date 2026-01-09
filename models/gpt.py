@@ -2,7 +2,8 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 from dataclasses import dataclass
-
+import inspect
+import logging
 
 class CausalSelfAttention(nn.Module):
 
@@ -121,9 +122,7 @@ class GPT(nn.Module):
             loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1))
         return logits, loss
     
-    def configure_optimizers(self, weight_decay, learning_rate, device_type, master_process=True):
-        import inspect
-        
+    def configure_optimizers(self, weight_decay, learning_rate, device_type, master_process=True):        
         param_dict = {pn: p for pn, p in self.named_parameters()}
         param_dict = {pn: p for pn, p in param_dict.items() if p.requires_grad}
         
@@ -136,7 +135,6 @@ class GPT(nn.Module):
         num_decay_params = sum(p.numel() for p in decay_params)
         num_nodecay_params = sum(p.numel() for p in nodecay_params)
         if master_process:
-            import logging
             logger = logging.getLogger(__name__)
             logger.info(f"num decayed parameter tensors: {len(decay_params)}, with {num_decay_params:,} parameters")
             logger.info(f"num non-decayed parameter tensors: {len(nodecay_params)}, with {num_nodecay_params:,} parameters")
@@ -144,7 +142,6 @@ class GPT(nn.Module):
         fused_available = 'fused' in inspect.signature(torch.optim.AdamW).parameters
         use_fused = fused_available and device_type == "cuda"
         if master_process:
-            import logging
             logger = logging.getLogger(__name__)
             logger.info(f"using fused AdamW: {use_fused}")
         optimizer = torch.optim.AdamW(optim_groups, lr=learning_rate, betas=(0.9, 0.95), eps=1e-8, fused=use_fused)
