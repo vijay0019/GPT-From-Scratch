@@ -1,21 +1,19 @@
-import os
-import torch
-import tiktoken
-
 import sys
 from pathlib import Path
-
+import torch
+import tiktoken
 from models import GPT, GPTConfig
-from data import DataLoaderLite
+from data.dataloader import DataLoaderLite
 from torch.nn.parallel import DistributedDataParallel as DDP
 from training.trainer import Trainer, setup_ddp
 from logger import setup_logging
 
-project_root = Path(__file__).parent
-sys.path.insert(0, str(project_root))
+PROJECT_ROOT = Path(__file__).resolve().parent
+sys.path.insert(0, str(PROJECT_ROOT))
 
 # Set up logging
-logger = setup_logging()
+log_dir = PROJECT_ROOT / "log"
+logger = setup_logging(log_dir=log_dir)
 
 torch.manual_seed(1337)
 if torch.cuda.is_available():
@@ -23,13 +21,14 @@ if torch.cuda.is_available():
 
 ddp, ddp_rank, ddp_local_rank, ddp_world_size, device, master_process = setup_ddp()
 
-# Configuration
+# Config
 enc = tiktoken.get_encoding("gpt2")
 total_batch_size = 524288 
 B = 32
 T = 1024
 assert total_batch_size % (B * T * ddp_world_size) == 0, "make sure total_batch_size is divisible by B * T * ddp_world_size"
 grad_accum_steps = total_batch_size // (B * T * ddp_world_size)
+data_dir = PROJECT_ROOT / "edu_fineweb10B"
 
 if master_process:
     logger.info(f"total desired batch size: {total_batch_size}")
@@ -39,12 +38,14 @@ if master_process:
 train_loader = DataLoaderLite(
     B=B, T=T, process_rank=ddp_rank, 
     num_processes=ddp_world_size, split="train",
-    master_process=master_process
+    master_process=master_process,
+    data_root=data_dir
 )
 val_loader = DataLoaderLite(
     B=B, T=T, process_rank=ddp_rank, 
     num_processes=ddp_world_size, split="val",
-    master_process=master_process
+    master_process=master_process,
+    data_root=data_dir
 )
 
 torch.set_float32_matmul_precision('high')
@@ -88,7 +89,7 @@ trainer = Trainer(
     ddp_rank=ddp_rank,
     ddp_world_size=ddp_world_size,
     master_process=master_process,
-    log_dir="log",
+    log_dir=log_dir,
     max_steps=max_steps,
     max_lr=max_lr,
     min_lr=min_lr,

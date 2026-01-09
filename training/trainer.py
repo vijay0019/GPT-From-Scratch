@@ -1,12 +1,12 @@
 import os
 import time
 import logging
+import math
 import torch
 import torch.distributed as dist
 from torch.distributed import destroy_process_group
-
-from ..utils import get_lr, get_most_likely_row
-from ..logger import CSVLogger
+from hellaswag import get_most_likely_row
+from logger import CSVLogger
 
 logger = logging.getLogger(__name__)
 
@@ -20,8 +20,7 @@ def setup_ddp():
     ddp = int(os.environ.get('RANK', -1)) != -1
     if ddp:
         assert torch.cuda.is_available()
-        from torch.distributed import init_process_group
-        init_process_group(backend='nccl')
+        dist.init_process_group(backend='nccl')
         ddp_rank = int(os.environ['RANK'])
         ddp_local_rank = int(os.environ['LOCAL_RANK'])
         ddp_world_size = int(os.environ['WORLD_SIZE'])
@@ -41,6 +40,19 @@ def setup_ddp():
     
     return ddp, ddp_rank, ddp_local_rank, ddp_world_size, device, master_process
 
+def get_lr(it, max_lr, min_lr, warmup_steps, max_steps):
+    """Learning rate schedule with linear warmup and cosine decay."""
+    
+    if it < warmup_steps:
+        return max_lr * (it+1) / warmup_steps
+    
+    if it > max_steps:
+        return min_lr
+    
+    decay_ratio = (it - warmup_steps) / (max_steps - warmup_steps)
+    assert 0 <= decay_ratio <= 1
+    coeff = 0.5 * (1.0 + math.cos(math.pi * decay_ratio))
+    return min_lr + coeff * (max_lr - min_lr)
 
 class Trainer:
     """
@@ -78,8 +90,6 @@ class Trainer:
         
         # CSV logger
         self.csv_logger = CSVLogger(log_dir=log_dir)
-        
-        # Create log directory
         os.makedirs(log_dir, exist_ok=True)
     
     def evaluate_validation_loss(self, step):
@@ -111,7 +121,7 @@ class Trainer:
         """Evaluate on HellaSwag dataset."""
         try:
             from ..hellaswag import iterate_examples, render_example
-        except (ImportError, AttributeError) as e:
+        except Exception as e:
             logger.warning(f"HellaSwag evaluation not available: {e}. Skipping.")
             return
         
