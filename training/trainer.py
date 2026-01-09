@@ -2,6 +2,7 @@ import os
 import time
 import logging
 import math
+import socket
 import torch
 import torch.distributed as dist
 from torch.distributed import destroy_process_group
@@ -11,33 +12,43 @@ from logger import CSVLogger
 logger = logging.getLogger(__name__)
 
 def setup_ddp():
-    """
-    Set up distributed data parallel training.
-    
-    Returns:
-        tuple: (ddp, ddp_rank, ddp_local_rank, ddp_world_size, device, master_process)
-    """
-    ddp = int(os.environ.get('RANK', -1)) != -1
-    if ddp:
-        assert torch.cuda.is_available()
-        dist.init_process_group(backend='nccl')
-        ddp_rank = int(os.environ['RANK'])
-        ddp_local_rank = int(os.environ['LOCAL_RANK'])
-        ddp_world_size = int(os.environ['WORLD_SIZE'])
-        device = f'cuda:{ddp_local_rank}'
-        torch.cuda.set_device(device)
+    """Set up distributed data parallel training."""
+    if "SLURM_PROCID" in os.environ:
+        ddp = True
+
+        ddp_rank = int(os.environ["SLURM_PROCID"])
+        ddp_local_rank = int(os.environ["SLURM_LOCALID"])
+        ddp_world_size = int(os.environ["SLURM_NTASKS"])
+
+        # Get master address from Slurm
+        if "SLURM_NODELIST" in os.environ:
+            hostnames = os.popen(
+                "scontrol show hostname " + os.environ["SLURM_NODELIST"]
+            ).read().split()
+            master_addr = hostnames[0]
+        else:
+            master_addr = socket.gethostname()
+
+        os.environ["MASTER_ADDR"] = master_addr
+        os.environ["MASTER_PORT"] = os.environ.get("MASTER_PORT", "29500")
+
+        torch.cuda.set_device(ddp_local_rank)
+        device = f"cuda:{ddp_local_rank}"
+
+        dist.init_process_group(
+            backend="nccl",
+            rank=ddp_rank,
+            world_size=ddp_world_size,
+        )
         master_process = ddp_rank == 0
     else:
-        # non-DDP run
+        ddp = False
         ddp_rank = 0
         ddp_local_rank = 0
         ddp_world_size = 1
         master_process = True
-        device = "cpu"
-        if torch.cuda.is_available():
-            device = "cuda"
-        logger.info(f"using device: {device}")
-    
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+
     return ddp, ddp_rank, ddp_local_rank, ddp_world_size, device, master_process
 
 def get_lr(it, max_lr, min_lr, warmup_steps, max_steps):
@@ -120,7 +131,7 @@ class Trainer:
     def evaluate_hellaswag(self, step):
         """Evaluate on HellaSwag dataset."""
         try:
-            from ..hellaswag import iterate_examples, render_example
+            from hellaswag import iterate_examples, render_example
         except Exception as e:
             logger.warning(f"HellaSwag evaluation not available: {e}. Skipping.")
             return

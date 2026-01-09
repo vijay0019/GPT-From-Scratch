@@ -1,3 +1,5 @@
+import os
+import socket
 import sys
 from pathlib import Path
 import torch
@@ -20,6 +22,14 @@ if torch.cuda.is_available():
     torch.cuda.manual_seed(1337)
 
 ddp, ddp_rank, ddp_local_rank, ddp_world_size, device, master_process = setup_ddp()
+print(
+    "HOST", socket.gethostname(),
+    "SLURM_PROCID", os.environ.get("SLURM_PROCID"),
+    "SLURM_LOCALID", os.environ.get("SLURM_LOCALID"),
+    "SLURM_NTASKS", os.environ.get("SLURM_NTASKS"),
+    "CUDA", torch.cuda.current_device(),
+    flush=True
+)
 
 # Config
 enc = tiktoken.get_encoding("gpt2")
