@@ -10,6 +10,10 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from training.trainer import Trainer, setup_ddp
 from logger import setup_logging
 
+os.environ["TORCH_NCCL_ASYNC_ERROR_HANDLING"] = "1"
+os.environ["TORCH_NCCL_BLOCKING_WAIT"] = "1"
+os.environ["NCCL_P2P_DISABLE"] = "1"
+
 PROJECT_ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
@@ -22,20 +26,12 @@ if torch.cuda.is_available():
     torch.cuda.manual_seed(1337)
 
 ddp, ddp_rank, ddp_local_rank, ddp_world_size, device, master_process = setup_ddp()
-print(
-    "HOST", socket.gethostname(),
-    "SLURM_PROCID", os.environ.get("SLURM_PROCID"),
-    "SLURM_LOCALID", os.environ.get("SLURM_LOCALID"),
-    "SLURM_NTASKS", os.environ.get("SLURM_NTASKS"),
-    "CUDA", torch.cuda.current_device(),
-    flush=True
-)
 
 # Config
 enc = tiktoken.get_encoding("gpt2")
 total_batch_size = 524288 
 B = 32
-T = 1024
+T = 2048
 assert total_batch_size % (B * T * ddp_world_size) == 0, "make sure total_batch_size is divisible by B * T * ddp_world_size"
 grad_accum_steps = total_batch_size // (B * T * ddp_world_size)
 data_dir = PROJECT_ROOT / "edu_fineweb10B"
@@ -64,11 +60,12 @@ torch.set_float32_matmul_precision('high')
 model = GPT(GPTConfig(vocab_size=50304))
 model.to(device)
 
-use_compile = False  # torch.compile interferes with HellaSwag eval and Generation
+use_compile = False  # interferes with HellaSwag eval and Generation
 if use_compile:
     model = torch.compile(model)
 
 if ddp:
+    print(f"Rank {ddp_rank} reached DDP")
     model = DDP(model, device_ids=[ddp_local_rank])
 
 raw_model = model.module if ddp else model
@@ -79,8 +76,9 @@ optimizer = raw_model.configure_optimizers(
     weight_decay=0.1, 
     learning_rate=6e-4, 
     device_type=device_type,
-    master_process=master_process
 )
+if master_process:
+    raw_model.log_optimizer_info(optimizer)
 
 # Train config
 max_lr = 6e-4

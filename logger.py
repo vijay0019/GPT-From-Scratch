@@ -53,10 +53,9 @@ class CSVLogger:
     
     def _initialize_csv(self):
         """Initialize CSV file with headers if it doesn't exist."""
-        if not os.path.exists(self.csv_path):
-            with open(self.csv_path, 'w', newline='') as f:
-                writer = csv.DictWriter(f, fieldnames=self.fieldnames)
-                writer.writeheader()
+        with open(self.csv_path, 'w', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=self.fieldnames)
+            writer.writeheader()
     
     def log(self, step, metric_type, value, lr=None, norm=None, dt_ms=None, tokens_per_sec=None):
         """Log a training metric to CSV"""

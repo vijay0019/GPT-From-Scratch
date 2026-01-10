@@ -66,7 +66,7 @@ class Block(nn.Module):
 
 @dataclass
 class GPTConfig:
-    context_length: int = 1024
+    context_length: int = 2048
     vocab_size: int = 50257
     n_layer: int = 12 
     n_head: int = 12
@@ -79,17 +79,15 @@ class GPT(nn.Module):
         super().__init__()
         self.config = config
 
-        self.transformer = nn.ModuleDict(
-            dict(
-                wte = nn.Embedding(config.vocab_size, config.n_embd),
-                wpe = nn.Embedding(config.context_length, config.n_embd),
-                h = nn.ModuleList([Block(config) for _ in range(config.n_layer)]),
-                ln_f = nn.LayerNorm(config.n_embd)
-            )
-        )
+        self.transformer = nn.ModuleDict()
+        self.transformer["wte"] = nn.Embedding(config.vocab_size, config.n_embd)
+        self.transformer["wpe"] = nn.Embedding(config.context_length, config.n_embd)
+        self.transformer["h"] = nn.ModuleList([Block(config) for _ in range(config.n_layer)])
+        self.transformer["ln_f"] = nn.LayerNorm(config.n_embd)
+        
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
         # weight sharing - Top and bottom layer
-        self.transformer.wte.weight = self.lm_head.weight
+        self.lm_head.weight = self.transformer.wte.weight
         # init params
         self.apply(self._init_weights)
     
@@ -122,7 +120,7 @@ class GPT(nn.Module):
             loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1))
         return logits, loss
     
-    def configure_optimizers(self, weight_decay, learning_rate, device_type, master_process=True):        
+    def configure_optimizers(self, weight_decay, learning_rate, device_type):        
         param_dict = {pn: p for pn, p in self.named_parameters()}
         param_dict = {pn: p for pn, p in param_dict.items() if p.requires_grad}
         
@@ -134,16 +132,24 @@ class GPT(nn.Module):
         ]
         num_decay_params = sum(p.numel() for p in decay_params)
         num_nodecay_params = sum(p.numel() for p in nodecay_params)
-        if master_process:
-            logger = logging.getLogger(__name__)
-            logger.info(f"num decayed parameter tensors: {len(decay_params)}, with {num_decay_params:,} parameters")
-            logger.info(f"num non-decayed parameter tensors: {len(nodecay_params)}, with {num_nodecay_params:,} parameters")
+        
         # Create AdamW optimizer and use the fused version if it is available
         fused_available = 'fused' in inspect.signature(torch.optim.AdamW).parameters
         use_fused = fused_available and device_type == "cuda"
-        if master_process:
-            logger = logging.getLogger(__name__)
-            logger.info(f"using fused AdamW: {use_fused}")
         optimizer = torch.optim.AdamW(optim_groups, lr=learning_rate, betas=(0.9, 0.95), eps=1e-8, fused=use_fused)
         return optimizer
-
+        
+    def log_optimizer_info(self, optimizer):
+        logger = logging.getLogger(__name__)
+    
+        num_params = sum(p.numel() for p in self.parameters())
+        num_trainable = sum(p.numel() for p in self.parameters() if p.requires_grad)
+    
+        logger.info(f"total parameters: {num_params:,}")
+        logger.info(f"trainable parameters: {num_trainable:,}")
+    
+        for i, group in enumerate(optimizer.param_groups):
+            wd = group.get("weight_decay", 0.0)
+            n = sum(p.numel() for p in group["params"])
+            logger.info(f"optimizer group {i}: {n:,} params, weight_decay={wd}")
+    

@@ -206,3 +206,10 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Data and Logs
+edu_fineweb10B/
+hellaswag/
+log/
+*.err
+*.out

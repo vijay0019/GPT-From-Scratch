@@ -39,6 +39,7 @@ def setup_ddp():
             backend="nccl",
             rank=ddp_rank,
             world_size=ddp_world_size,
+            device_id=torch.device(f"cuda:{ddp_local_rank}"),
         )
         master_process = ddp_rank == 0
     else:
@@ -117,8 +118,8 @@ class Trainer:
                 loss = loss / self.val_loss_steps
                 val_loss_accum += loss.detach()
         
-        if self.ddp:
-            dist.all_reduce(val_loss_accum, op=dist.ReduceOp.AVG)
+        # if self.ddp:
+        #     dist.all_reduce(val_loss_accum, op=dist.ReduceOp.AVG)
         
         val_loss = val_loss_accum.item()
         
@@ -140,8 +141,8 @@ class Trainer:
         num_total = 0
         for i, example in enumerate(iterate_examples("val")):
             # Process examples where i % ddp_world_size == ddp_rank
-            if i % self.ddp_world_size != self.ddp_rank:
-                continue
+            # if i % self.ddp_world_size != self.ddp_rank:
+            #     continue
             # render the example into tokens and labels
             _, tokens, mask, label = render_example(example)
             tokens = tokens.to(self.device)
@@ -155,19 +156,19 @@ class Trainer:
             num_correct_norm += int(pred_norm == label)
         
         # reduce the stats across all processes
-        if self.ddp:
-            num_total = torch.tensor(num_total, dtype=torch.long, device=self.device)
-            num_correct_norm = torch.tensor(num_correct_norm, dtype=torch.long, device=self.device)
-            dist.all_reduce(num_total, op=dist.ReduceOp.SUM)
-            dist.all_reduce(num_correct_norm, op=dist.ReduceOp.SUM)
-            num_total = num_total.item()
-            num_correct_norm = num_correct_norm.item()
+        # if self.ddp:
+        #     num_total = torch.tensor(num_total, dtype=torch.long, device=self.device)
+        #     num_correct_norm = torch.tensor(num_correct_norm, dtype=torch.long, device=self.device)
+        #     dist.all_reduce(num_total, op=dist.ReduceOp.SUM)
+        #     dist.all_reduce(num_correct_norm, op=dist.ReduceOp.SUM)
+        #     num_total = num_total.item()
+        #     num_correct_norm = num_correct_norm.item()
         
         acc_norm = num_correct_norm / num_total if num_total > 0 else 0.0
         
-        if self.master_process:
-            logger.info(f"HellaSwag accuracy: {num_correct_norm}/{num_total}={acc_norm:.4f}")
-            self.csv_logger.log(step, 'hella', acc_norm)
+        # if self.master_process:
+        logger.info(f"HellaSwag accuracy: {num_correct_norm}/{num_total}={acc_norm:.4f}")
+        self.csv_logger.log(step, 'hella', acc_norm)
         
         return acc_norm
     
@@ -190,7 +191,10 @@ class Trainer:
         
         # Evaluate validation loss
         if step % self.eval_interval == 0 or last_step:
-            val_loss = self.evaluate_validation_loss(step)
+            if self.master_process:
+                val_loss = self.evaluate_validation_loss(step)
+            if self.ddp:
+                dist.barrier()
             
             # Save checkpoint
             if step > 0 and (step % self.checkpoint_interval == 0 or last_step):
@@ -198,12 +202,15 @@ class Trainer:
                 self.save_checkpoint(step, val_loss, raw_model)
         
         # Evaluate HellaSwag
-        if (step % self.eval_interval == 0 or last_step):
-            try:
-                self.evaluate_hellaswag(step)
-            except Exception as e:
-                if self.master_process:
-                    logger.warning(f"HellaSwag evaluation failed: {e}")
+        if (step % self.eval_interval == 0) or last_step:
+            if self.master_process:
+                try:
+                    self.evaluate_hellaswag(step)
+                except Exception as e:
+                    if self.master_process:
+                        logger.warning(f"HellaSwag evaluation failed: {e}")
+            if self.ddp:
+                dist.barrier()
         
         # Training step
         self.model.train()

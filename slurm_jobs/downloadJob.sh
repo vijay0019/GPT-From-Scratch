@@ -2,7 +2,7 @@
 #SBATCH --job-name=train_data_download
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=8
+#SBATCH --cpus-per-task=16
 #SBATCH --mem=40G
 #SBATCH --partition=pascalnodes
 #SBATCH --time=02:00:00
