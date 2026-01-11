@@ -29,7 +29,7 @@ ddp, ddp_rank, ddp_local_rank, ddp_world_size, device, master_process = setup_dd
 
 # Config
 enc = tiktoken.get_encoding("gpt2")
-total_batch_size = 524288 
+total_batch_size = 50257 
 B = 32
 T = 2048
 assert total_batch_size % (B * T * ddp_world_size) == 0, "make sure total_batch_size is divisible by B * T * ddp_world_size"

@@ -118,9 +118,6 @@ class Trainer:
                 loss = loss / self.val_loss_steps
                 val_loss_accum += loss.detach()
         
-        # if self.ddp:
-        #     dist.all_reduce(val_loss_accum, op=dist.ReduceOp.AVG)
-        
         val_loss = val_loss_accum.item()
         
         if self.master_process:
@@ -140,9 +137,6 @@ class Trainer:
         num_correct_norm = 0
         num_total = 0
         for i, example in enumerate(iterate_examples("val")):
-            # Process examples where i % ddp_world_size == ddp_rank
-            # if i % self.ddp_world_size != self.ddp_rank:
-            #     continue
             # render the example into tokens and labels
             _, tokens, mask, label = render_example(example)
             tokens = tokens.to(self.device)
@@ -154,15 +148,6 @@ class Trainer:
                 pred_norm = get_most_likely_row(tokens, mask, logits)
             num_total += 1
             num_correct_norm += int(pred_norm == label)
-        
-        # reduce the stats across all processes
-        # if self.ddp:
-        #     num_total = torch.tensor(num_total, dtype=torch.long, device=self.device)
-        #     num_correct_norm = torch.tensor(num_correct_norm, dtype=torch.long, device=self.device)
-        #     dist.all_reduce(num_total, op=dist.ReduceOp.SUM)
-        #     dist.all_reduce(num_correct_norm, op=dist.ReduceOp.SUM)
-        #     num_total = num_total.item()
-        #     num_correct_norm = num_correct_norm.item()
         
         acc_norm = num_correct_norm / num_total if num_total > 0 else 0.0
         
@@ -189,18 +174,14 @@ class Trainer:
         t0 = time.time()
         last_step = (step == self.max_steps - 1)
         
-        # Evaluate validation loss
-        if step % self.eval_interval == 0 or last_step:
+        # Evaluate validation loss and save checkpoint
+        if (step % self.eval_interval == 0) or last_step:
             if self.master_process:
                 val_loss = self.evaluate_validation_loss(step)
-            if self.ddp:
-                dist.barrier()
-            
-            # Save checkpoint
-            if step > 0 and (step % self.checkpoint_interval == 0 or last_step):
-                raw_model = self.model.module if self.ddp else self.model
-                self.save_checkpoint(step, val_loss, raw_model)
-        
+                if step>0:
+                    raw_model = self.model.module if self.ddp else self.model
+                    self.save_checkpoint(step, val_loss, raw_model)
+
         # Evaluate HellaSwag
         if (step % self.eval_interval == 0) or last_step:
             if self.master_process:

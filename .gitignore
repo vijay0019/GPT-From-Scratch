@@ -210,6 +210,6 @@ __marimo__/
 # Data and Logs
 edu_fineweb10B/
 hellaswag/
-log/
+log*/
 *.err
 *.out
