@@ -101,8 +101,8 @@ class Trainer:
         self.grad_accum_steps = grad_accum_steps
         
         # CSV logger
-        self.csv_logger = CSVLogger(log_dir=log_dir)
-        os.makedirs(log_dir, exist_ok=True)
+        self.csv_logger = CSVLogger(log_dir=self.log_dir)
+        os.makedirs(f"{self.log_dir}/checkpoints", exist_ok=True)
     
     def evaluate_validation_loss(self, step):
         """Evaluate validation loss."""
@@ -159,7 +159,7 @@ class Trainer:
     
     def save_checkpoint(self, step, val_loss, raw_model):
         """Save model checkpoint."""
-        checkpoint_path = os.path.join(self.log_dir, f"model_{step:05d}.pt")
+        checkpoint_path = os.path.join(f"{self.log_dir}/checkpoints", f"model_{step:05d}.pt")
         checkpoint = {
             'model': raw_model.state_dict(),
             'config': raw_model.config,
@@ -178,7 +178,7 @@ class Trainer:
         if (step % self.eval_interval == 0) or last_step:
             if self.master_process:
                 val_loss = self.evaluate_validation_loss(step)
-                if step>0:
+                if (step>0 and step % 5000 == 0) or last_step:
                     raw_model = self.model.module if self.ddp else self.model
                     self.save_checkpoint(step, val_loss, raw_model)
 

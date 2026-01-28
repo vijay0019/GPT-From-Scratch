@@ -1,12 +1,12 @@
 #!/bin/bash
 #SBATCH --job-name=gpt_training
 #SBATCH --gres=gpu:2
-#SBATCH --partition=amperenodes
+#SBATCH --partition=amperenodes-medium
 #SBATCH --nodes=1
 #SBATCH --ntasks=2
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=128G
-#SBATCH --time=12:00:00
+#SBATCH --time=18:00:00
 #SBATCH --output=%x_%j.out
 #SBATCH --error=%x_%j.err
 

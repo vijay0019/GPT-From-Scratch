@@ -66,7 +66,7 @@ class Block(nn.Module):
 
 @dataclass
 class GPTConfig:
-    context_length: int = 2048
+    context_length: int = 1024
     vocab_size: int = 50257
     n_layer: int = 12 
     n_head: int = 12

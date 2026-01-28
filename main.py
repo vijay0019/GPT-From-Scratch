@@ -1,5 +1,4 @@
 import os
-import socket
 import sys
 from pathlib import Path
 import torch
@@ -29,16 +28,16 @@ ddp, ddp_rank, ddp_local_rank, ddp_world_size, device, master_process = setup_dd
 
 # Config
 enc = tiktoken.get_encoding("gpt2")
-total_batch_size = 50257 
-B = 32
-T = 2048
+total_batch_size = 50257
+B = 64
+T = 1024
 assert total_batch_size % (B * T * ddp_world_size) == 0, "make sure total_batch_size is divisible by B * T * ddp_world_size"
 grad_accum_steps = total_batch_size // (B * T * ddp_world_size)
 data_dir = PROJECT_ROOT / "edu_fineweb10B"
 
 if master_process:
     logger.info(f"total desired batch size: {total_batch_size}")
-    logger.info(f"=> calculated gradient accumulation steps: {grad_accum_steps}")
+    logger.info(f"Calculated gradient accumulation steps: {grad_accum_steps}")
 
 # Data loaders
 train_loader = DataLoaderLite(
